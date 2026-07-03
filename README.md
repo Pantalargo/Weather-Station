@@ -25,5 +25,3 @@ sudo apt install g++ libcurl4-openssl-dev libsqlite3-dev sqlite3 nginx php8.3-fp
 ```
 
 Note: The C++ code needs the `json.hpp` header from the nlohmann/json library to be, in the backend directory when it is compiled. The Weather Station WebApp uses this library to understand the weather data it collects.
-
-Note: The C++ source code requires the `json.hpp` header from the nlohmann/json library to be present in the backend directory during compilation.
