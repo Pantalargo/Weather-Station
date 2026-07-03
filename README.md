@@ -20,8 +20,6 @@ This project needs to run on a Linux system like Ubuntu Server or Debian. We nee
 
 ```bash
 
-sudo update
-
 sudo apt install g++ libcurl4-openssl-dev libsqlite3-dev sqlite3 nginx php8.3-fpm
 
 ```
