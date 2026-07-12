@@ -1,9 +1,9 @@
-tunnel: YOUR_TUNNEL_ID
-credentials-file: /etc/cloudflared/YOUR_TUNNEL_ID.json
+tunnel: TUNNEL ID
+credentials-file: Path to tunnel-id.json
 
 ingress:
 
-  - hostname: YOUR_WEATHER_DOMAIN
-    service: http://localhost:8080
-    originRequest:
-      noTLSVerify: true
+  - hostname: DOMAIN
+    service: http://localhost:PORT
+  
+  - service: http_status:404
