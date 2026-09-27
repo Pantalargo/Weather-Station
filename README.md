@@ -1,29 +1,55 @@
-# Weather Station WebApp
+Previsioni meteo
 
-This is a stack application that collects weather data automatically stores it and shows it on the web. The project uses a C++ backend worker that runs fast a SQLite3 database that's small a PHP frontend dashboard that is served by NGINX and Cloudflare Tunnels to make it secure and accessible from outside.
+Questo progetto è una piccola web app completa che automatizza la raccolta dei dati meteo, salva lo storico e mostra una dashboard con le condizioni attuali e le previsioni a breve e lungo termine.
 
-##. Workflow
+L'idea alla base è usare strumenti leggeri e veloci: un worker in C++ che fa il lavoro sporco dietro le quinte, un database SQLite e un'interfaccia in PHP/CSS pura servita tramite NGINX. Il tutto esposto su internet in sicurezza usando Cloudflare Tunnels.
 
-The system is like a pipeline that is automated and has four parts:
+Come funziona
 
-1. Getting Data (Backend): A C++ program runs every 15 minutes because of a system cronjob. It sends a request to the OpenWeatherMap API using libcurl. When it gets the data back it uses the nlohmann/json library to understand the weather information.
+L'architettura si divide in quattro componenti principali:
 
-2. Saving Data (Database): The program takes the data it got like temperature and humidity. Puts it into a SQLite3 database on the local machine.
+Recupero dati (Backend C++): Un piccolo programma in C++ viene eseguito ogni 15 minuti tramite un cronjob. Chiama le API gratuite di Open-Meteo (usando libcurl), recupera il meteo attuale e le previsioni (fino a 7 giorni) e fa il parsing del JSON sfruttando la libreria nlohmann/json.
 
-3. Showing Data (Frontend): The NGINX web server gets requests from users. Sends them to the PHP 8.3-FPM processor. The PHP scripts connect to the SQLite3 database get the records make the timestamps look nice apply filters and show a user interface that works well and looks good with Tailwind CSS.
+Archiviazione (SQLite + File locale):
 
-4. Making it Secure (Networking): Cloudflare Tunnels make the local NGINX port accessible from the internet over HTTPS. This way we do not need to set up SSL or ports on the local router manually.
+Il meteo attuale (temperatura, umidità, vento, ecc.) viene salvato in un database SQLite (weather.db) per costruire uno storico.
 
-## System Requirements
+Le previsioni complete vengono invece "parcheggiate" in un file forecast.json locale. In questo modo l'interfaccia web è velocissima da caricare e non andiamo a consumare inutilmente il limite delle chiamate API di Open-Meteo ad ogni visita.
 
-This project needs to run on a Linux system like Ubuntu Server or Debian. We need to install the following:
+Dashboard (Frontend PHP):
 
-```bash
+NGINX e PHP-FPM gestiscono la parte visiva. La pagina principale legge sia lo storico da SQLite che le previsioni dal file JSON. Il risultato è una dashboard con il meteo live, uno slider orizzontale per le prossime 24 ore e una griglia per i 7 giorni successivi.
 
-sudo apt install g++ libcurl4-openssl-dev libsqlite3-dev sqlite3 nginx php8.3-fpm
+Messa online (Cloudflare Tunnels):
 
-```
+Invece di aprire porte sul router e configurare i certificati SSL a mano, il progetto è pensato per girare con Cloudflare Tunnels. Il server locale NGINX viene esposto su internet in HTTPS in modo sicuro e senza impazzire con le configurazioni di rete.
 
-Note: The C++ code needs the `json.hpp` header from the nlohmann/json library to be, in the backend directory when it is compiled. The Weather Station WebApp uses this library to understand the weather data it collects.
+Installazione e utilizzo
+
+Il progetto è pensato per girare su un server Linux (es. Debian o Ubuntu).
+
+1. Requisiti
+
+Ti serviranno il compilatore C++, NGINX, PHP e un paio di librerie per far girare il tutto. Puoi installarle con:
+
+sudo apt update
+sudo apt install g++ libcurl4-openssl-dev libsqlite3-dev sqlite3 nginx php-fpm php-sqlite3 nlohmann-json3-dev
 
 
+2. Compilazione
+
+Per compilare l'eseguibile C++, assicurati di includere le librerie curl e sqlite3 per il linking:
+
+g++ -std=c++17 meteo.cpp -o meteo -lcurl -lsqlite3
+
+
+3. Automazione (Cron)
+
+Per far sì che i dati siano sempre aggiornati, aggiungi una riga al tuo crontab per avviare lo script automaticamente ogni 15 minuti:
+
+crontab -e
+
+
+Aggiungi in fondo al file:
+
+*/15 * * * * /opt/weather/meteo > /dev/null 2>&1
