@@ -1,133 +1,225 @@
 <?php
-$db_path = '/opt/weather/weather.db'; // Sqlite3 database path
-$last_reading = null;
-$history_readings = [];
-$error = null;
+
+$dbPath = '/opt/weather/weather.db';
+$jsonForecastPath = '/opt/weather/forecast.json';
+
+$ultimoRilevamento = null;
+$storico = [];
+$previsioni = null;
+$errore = null;
+
+function getWmoIconAndDesc($code) {
+    $codes = [
+        0 => ['Cielo sereno', '01d'],
+        1 => ['Prevalentemente sereno', '02d'],
+        2 => ['Parzialmente nuvoloso', '03d'],
+        3 => ['Nuvoloso', '04d'],
+        45 => ['Nebbia', '50d'], 48 => ['Nebbia', '50d'],
+        51 => ['Pioviggine', '09d'], 53 => ['Pioviggine', '09d'], 55 => ['Pioviggine', '09d'],
+        61 => ['Pioggia debole', '10d'], 63 => ['Pioggia', '10d'], 65 => ['Pioggia forte', '10d'],
+        71 => ['Neve', '13d'], 73 => ['Neve', '13d'], 75 => ['Neve forte', '13d'],
+        80 => ['Acquazzone', '09d'], 81 => ['Acquazzone', '09d'], 82 => ['Acquazzone forte', '09d'],
+        95 => ['Temporale', '11d'], 96 => ['Temporale', '11d'], 99 => ['Temporale', '11d']
+    ];
+    return $codes[$code] ?? ['Sconosciuto', '03d'];
+}
 
 try {
-    $db = new PDO("sqlite:" . $db_path);
+    $db = new PDO('sqlite:' . $dbPath);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $db->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
-    $stmt_last = $db->query("SELECT * FROM dati_meteo ORDER BY data_ora DESC LIMIT 1");
-    $last_reading = $stmt_last->fetch();
+    $query = $db->query('SELECT * FROM dati_meteo ORDER BY data_ora DESC LIMIT 20');
+    $storico = $query->fetchAll();
 
-    $stmt_history = $db->query("SELECT * FROM dati_meteo ORDER BY data_ora DESC LIMIT 20");
-    $history_readings = $stmt_history->fetchAll();
-
+    if (!empty($storico)) {
+        $ultimoRilevamento = $storico[0];
+    }
 } catch (PDOException $e) {
-    $error = "Database connection error: " . $e->getMessage();
+    $errore = 'Errore DB: ' . $e->getMessage();
 }
+
+if (file_exists($jsonForecastPath)) {
+    $rawJson = file_get_contents($jsonForecastPath);
+    $previsioni = json_decode($rawJson, true);
+}
+
+function dataMeteo($data) {
+    return date('d/m/Y H:i', strtotime($data) + 7200);
+}
+
+function valore($dato, $decimali = 1) {
+    return number_format((float) $dato, $decimali);
+}
+
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="it">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Weather</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Stazione Meteo</title>
+    <link rel="stylesheet" href="stile.css?v=<?= time() ?>">
 </head>
-<body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
-    <div class="container mx-auto px-4 py-8 max-w-5xl">
-        
-        <div class="flex justify-end mb-6">
-            <a href="mostraDB.php" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-xl text-sm font-medium transition-colors border border-blue-500 shadow-lg">
-                View Full Database
-            </a>
+<body>
+
+<div class="container">
+
+    <header class="header">
+        <h1>Stazione Meteo</h1>
+        <a href="mostraDB.php" class="btn-archive">Archivio Dati &rarr;</a>
+    </header>
+
+    <?php if ($errore): ?>
+        <div class="error-message">
+            <p class="error-title">Impossibile caricare i dati</p>
+            <p class="error-text"><?= htmlspecialchars($errore) ?></p>
         </div>
+    <?php endif; ?>
 
-        <?php if ($error): ?>
-            <div class="bg-red-900/50 border border-red-500 text-red-200 p-4 rounded-lg mb-6">
-                <p class="font-semibold">Warning:</p>
-                <p><?php echo htmlspecialchars($error); ?></p>
+    <?php if ($ultimoRilevamento): ?>
+        <section class="glass-panel weather-widget">
+            <h2 class="city-name"><?= htmlspecialchars($ultimoRilevamento['localita']) ?></h2>
+            <p class="update-time">Rilevato il <?= dataMeteo($ultimoRilevamento['data_ora']) ?></p>
+
+            <div class="current-weather">
+                <div class="temp-main"><?= valore($ultimoRilevamento['temperatura']) ?>&deg;</div>
+                
+                <?php if (!empty($ultimoRilevamento['icona_codice'])): ?>
+                    <div class="condition">
+                        <img 
+                            src="https://openweathermap.org/img/wn/<?= htmlspecialchars($ultimoRilevamento['icona_codice']) ?>@2x.png" 
+                            alt="<?= htmlspecialchars($ultimoRilevamento['descrizione']) ?>" 
+                            class="weather-icon-placeholder"
+                        >
+                        <span class="condition-text"><?= htmlspecialchars($ultimoRilevamento['descrizione']) ?></span>
+                    </div>
+                <?php endif; ?>
             </div>
-        <?php endif; ?>
 
-        <?php if ($last_reading): ?>
-            <section class="bg-gray-800 rounded-2xl p-6 shadow-xl border border-gray-700 mb-10">
-                <div class="flex flex-col md:flex-row justify-between items-center mb-6">
-                    <div>
-                        <h2 class="text-2xl font-semibold text-white">
-                            Latest reading at: <span class="text-blue-400"><?php echo htmlspecialchars($last_reading['localita']); ?></span>
-                        </h2>
-                        <p class="text-gray-400 text-sm mt-1">
-                            Updated on: <?php echo date('d/m/Y H:i:s', strtotime($last_reading['data_ora']) + 7200); ?>
-                        </p>
-                    </div>
-                    <?php if (!empty($last_reading['icona_codice'])): ?>
-                        <div class="flex items-center bg-gray-700/50 px-4 py-2 rounded-xl mt-4 md:mt-0">
-                            <img src="https://openweathermap.org/img/wn/<?php echo htmlspecialchars($last_reading['icona_codice']); ?>.png"
-                                 alt="<?php echo htmlspecialchars($last_reading['descrizione']); ?>"
-                                 class="w-16 h-16">
-                            <span class="text-lg capitalize font-medium text-gray-300 ml-2">
-                                <?php echo htmlspecialchars($last_reading['descrizione']); ?>
-                            </span>
-                        </div>
-                    <?php endif; ?>
+            <div class="weather-details-grid">
+                <div class="detail-item">
+                    <span class="detail-label">Percepita</span>
+                    <span class="detail-value"><?= valore($ultimoRilevamento['percepita']) ?>&deg;</span>
                 </div>
-
-                <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
-                    <div class="bg-gray-700/30 p-4 rounded-xl text-center border border-gray-700">
-                        <span class="text-xs text-gray-400 uppercase font-semibold">Temperature</span>
-                        <div class="text-2xl font-bold text-orange-400 mt-1"><?php echo number_format($last_reading['temperatura'], 1); ?>°C</div>
-                    </div>
-                    <div class="bg-gray-700/30 p-4 rounded-xl text-center border border-gray-700">
-                        <span class="text-xs text-gray-400 uppercase font-semibold">Feels Like</span>
-                        <div class="text-2xl font-bold text-red-400 mt-1"><?php echo number_format($last_reading['percepita'], 1); ?>°C</div>
-                    </div>
-                    <div class="bg-gray-700/30 p-4 rounded-xl text-center border border-gray-700">
-                        <span class="text-xs text-gray-400 uppercase font-semibold">Humidity</span>
-                        <div class="text-2xl font-bold text-blue-400 mt-1"><?php echo htmlspecialchars($last_reading['umidita']); ?>%</div>
-                    </div>
-                    <div class="bg-gray-700/30 p-4 rounded-xl text-center border border-gray-700">
-                        <span class="text-xs text-gray-400 uppercase font-semibold">Pressure</span>
-                        <div class="text-2xl font-bold text-emerald-400 mt-1"><?php echo htmlspecialchars($last_reading['pressione']); ?> hPa</div>
-                    </div>
-                    <div class="bg-gray-700/30 p-4 rounded-xl text-center border border-gray-700 col-span-2 md:col-span-1">
-                        <span class="text-xs text-gray-400 uppercase font-semibold">Wind</span>
-                        <div class="text-2xl font-bold text-purple-400 mt-1"><?php echo number_format($last_reading['velocita_vento'], 1); ?> m/s</div>
-                    </div>
+                <div class="detail-item">
+                    <span class="detail-label">Umidità</span>
+                    <span class="detail-value"><?= htmlspecialchars($ultimoRilevamento['umidita']) ?>%</span>
                 </div>
-            </section>
-        <?php else: ?>
-            <?php if (!$error): ?>
-                <div class="bg-gray-800 p-6 rounded-xl text-center border border-gray-700 mb-10">
-                    <p class="text-gray-400">No data available in the database.</p>
+                <div class="detail-item">
+                    <span class="detail-label">Pressione</span>
+                    <span class="detail-value"><?= htmlspecialchars($ultimoRilevamento['pressione']) ?> <span class="unit">hPa</span></span>
                 </div>
-            <?php endif; ?>
-        <?php endif; ?>
-
-        <section class="bg-gray-800 rounded-2xl p-6 shadow-xl border border-gray-700">
-            <h3 class="text-xl font-semibold text-white mb-4">History of last 20 readings</h3>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse">
-                    <thead>
-                        <tr class="border-b border-gray-700 text-xs uppercase text-gray-400">
-                            <th class="py-3 px-4">Date and Time</th>
-                            <th class="py-3 px-4">Location</th>
-                            <th class="py-3 px-4">Temp.</th>
-                            <th class="py-3 px-4">Humidity</th>
-                            <th class="py-3 px-4">Pressure</th>
-                            <th class="py-3 px-4">Wind</th>
-                            <th class="py-3 px-4">Conditions</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-700 text-sm text-gray-300">
-                        <?php foreach ($history_readings as $row): ?>
-                            <tr>
-                                <td class="py-3 px-4 font-mono text-gray-400"><?php echo date('d/m/Y H:i', strtotime($row['data_ora']) + 7200); ?></td>
-                                <td class="py-3 px-4"><?php echo htmlspecialchars($row['localita']); ?></td>
-                                <td class="py-3 px-4 text-orange-400"><?php echo number_format($row['temperatura'], 1); ?>°</td>
-                                <td class="py-3 px-4 text-blue-400"><?php echo htmlspecialchars($row['umidita']); ?>%</td>
-                                <td class="py-3 px-4 text-emerald-400"><?php echo htmlspecialchars($row['pressione']); ?> hPa</td>
-                                <td class="py-3 px-4 text-purple-400"><?php echo number_format($row['velocita_vento'], 1); ?> m/s</td>
-                                <td class="py-3 px-4 capitalize"><?php echo htmlspecialchars($row['descrizione']); ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+                <div class="detail-item">
+                    <span class="detail-label">Vento</span>
+                    <span class="detail-value"><?= valore($ultimoRilevamento['velocita_vento']) ?> <span class="unit">m/s</span></span>
+                </div>
             </div>
         </section>
-    </div>
+    <?php endif; ?>
+
+    <?php if (isset($previsioni['hourly'])): ?>
+        <section class="hourly-section">
+            <h3>Previsioni prossime 24 ore</h3>
+            <div class="hourly-slider">
+                <?php 
+                $hourly = $previsioni['hourly'];
+                $oraAttuale = date('Y-m-d\TH:00'); 
+                $startIndex = array_search($oraAttuale, $hourly['time']);
+                if ($startIndex === false) {
+                    $startIndex = 0;
+                }
+
+                $fineIndex = min($startIndex + 24, count($hourly['time']));
+                for ($i = $startIndex; $i < $fineIndex; $i++): 
+                    $oraFormatted = date('H:i', strtotime($hourly['time'][$i]));
+                    $code = $hourly['weather_code'][$i];
+                    list($desc, $icon) = getWmoIconAndDesc($code);
+                    $temp = round($hourly['temperature_2m'][$i]);
+                    $probRain = $hourly['precipitation_probability'][$i] ?? 0;
+                ?>
+                    <div class="glass-panel hourly-card">
+                        <span class="hourly-time"><?= ($i === $startIndex) ? 'Ora' : $oraFormatted ?></span>
+                        <img src="https://openweathermap.org/img/wn/<?= $icon ?>.png" alt="<?= $desc ?>" class="hourly-icon" title="<?= $desc ?>">
+                        <span class="hourly-temp"><?= $temp ?>°</span>
+                        <?php if ($probRain > 0): ?>
+                            <span class="hourly-rain">☔ <?= $probRain ?>%</span>
+                        <?php endif; ?>
+                    </div>
+                <?php endfor; ?>
+            </div>
+        </section>
+    <?php endif; ?>
+
+    <?php if (isset($previsioni['daily'])): ?>
+        <section class="forecast-section">
+            <h3>Previsioni per i prossimi giorni</h3>
+            <div class="forecast-grid">
+                <?php 
+                $daily = $previsioni['daily'];
+                for ($i = 0; $i < count($daily['time']); $i++): 
+                    $dataGiorno = date('d/m', strtotime($daily['time'][$i]));
+                    $giornoSettimana = date('D', strtotime($daily['time'][$i]));
+                    $code = $daily['weather_code'][$i];
+                    list($desc, $icon) = getWmoIconAndDesc($code);
+                    $tMax = round($daily['temperature_2m_max'][$i]);
+                    $tMin = round($daily['temperature_2m_min'][$i]);
+                    $probRain = $daily['precipitation_probability_max'][$i] ?? 0;
+                ?>
+                    <div class="glass-panel forecast-card">
+                        <span class="forecast-day"><?= $giornoSettimana ?> <?= $dataGiorno ?></span>
+                        <img src="https://openweathermap.org/img/wn/<?= $icon ?>.png" alt="<?= $desc ?>" class="forecast-icon">
+                        <span class="forecast-desc"><?= $desc ?></span>
+                        <div class="forecast-temp">
+                            <span class="temp-max"><?= $tMax ?>°</span>
+                            <span class="temp-min"><?= $tMin ?>°</span>
+                        </div>
+                        <?php if ($probRain > 0): ?>
+                            <span class="forecast-rain">☔ <?= $probRain ?>%</span>
+                        <?php endif; ?>
+                    </div>
+                <?php endfor; ?>
+            </div>
+        </section>
+    <?php endif; ?>
+
+    <section class="history-section">
+        <h3>Tendenze recenti (Archivio DB)</h3>
+        <?php if (!empty($storico)): ?>
+            <div class="glass-panel table-container">
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Orario</th>
+                                <th>Temp</th>
+                                <th>Umidità</th>
+                                <th>Vento</th>
+                                <th>Condizioni</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($storico as $rilevamento): ?>
+                                <tr>
+                                    <td class="fw-medium"><?= dataMeteo($rilevamento['data_ora']) ?></td>
+                                    <td><?= valore($rilevamento['temperatura']) ?>&deg;</td>
+                                    <td><?= htmlspecialchars($rilevamento['umidita']) ?>%</td>
+                                    <td><?= valore($rilevamento['velocita_vento']) ?> m/s</td>
+                                    <td class="capitalize"><?= htmlspecialchars($rilevamento['descrizione']) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        <?php endif; ?>
+    </section>
+
+    <footer style="text-align: center; opacity: 0.7; font-size: 13px; margin-top: 30px; margin-bottom: 20px;">
+        Dati meteo forniti da <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer" style="color: #fff; text-decoration: underline;">Open-Meteo</a>
+    </footer>
+
+</div>
+
 </body>
 </html>
